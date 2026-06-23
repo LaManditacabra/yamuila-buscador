@@ -137,22 +137,13 @@
     </main>
 
     <script>
-        // Backend en Render (actualizá esta URL después del deploy)
-        const RENDER_API = 'https://yamuila-buscador.onrender.com';
+        // Mapeo de países para Mercado Libre y Amazon
+        const ML_SITES = { "com.ar": "MLA", "com.mx": "MLM", "cl": "MLC", "com.co": "MCO" };
+        const AMZ_LINKS = { "com.ar": "com", "com.mx": "com.mx", "cl": "com", "com.co": "com" };
 
         const CURRENCY_SYMBOLS = {
             "ARS": "$", "MXN": "$", "CLP": "$", "COP": "$", "USD": "U$S"
         };
-
-        function getApiBase() {
-            const { hostname, port } = window.location;
-            if (port === '8000') return '';
-            if (hostname.endsWith('github.io')) return RENDER_API;
-            if (hostname === 'localhost' || hostname === '127.0.0.1') {
-                return port === '8080' ? 'http://localhost:8000' : '';
-            }
-            return '';
-        }
 
         function escapeHtml(text) {
             const el = document.createElement('div');
@@ -175,8 +166,8 @@
             errorState.classList.add('hidden');
             loader.classList.remove('hidden');
 
-            const apiBase = getApiBase();
-            const apiUrl = `${apiBase}/search?q=${encodeURIComponent(query)}&country=${encodeURIComponent(country)}&page_size=40`;
+            const siteId = ML_SITES[country];
+            const apiUrl = `https://api.mercadolibre.com/sites/${siteId}/search?q=${encodeURIComponent(query)}&limit=40`;
 
             try {
                 const response = await fetch(apiUrl);
@@ -188,47 +179,81 @@
                 const data = await response.json();
                 loader.classList.add('hidden');
 
-                const items = Array.isArray(data) ? data : (data.items || []);
+                const results = data.results || [];
 
-                if (items.length === 0) {
+                if (results.length === 0) {
                     emptyState.classList.remove('hidden');
                     emptyState.querySelector('h3').textContent = "No encontramos resultados";
                     emptyState.querySelector('p').textContent = `No hay productos para "${query}" en el país seleccionado.`;
                     return;
                 }
 
-                items.forEach((item, index) => {
+                // Agregar tarjeta de Amazon al principio
+                const amazonCard = buildAmazonCard(query, country);
+                amazonCard.style.animationDelay = '0ms';
+                grid.appendChild(amazonCard);
+
+                // Agregar productos de Mercado Libre
+                results.forEach((item, index) => {
                     const card = buildProductCard(item);
-                    card.style.animationDelay = `${index * 40}ms`;
+                    card.style.animationDelay = `${(index + 1) * 40}ms`;
                     grid.appendChild(card);
                 });
 
             } catch (err) {
                 loader.classList.add('hidden');
                 errorState.classList.remove('hidden');
-                const hint = getApiBase() ? ' ¿Está activo el backend en Render?' : ' Ejecutá: uvicorn main:app --port 8000';
-                document.getElementById('errorMsg').textContent = `Error al conectar con el servidor: ${err.message}.${hint}`;
+                document.getElementById('errorMsg').textContent = `Error al conectar con la API de Mercado Libre: ${err.message}.`;
             }
         }
 
+        function buildAmazonCard(query, country) {
+            const amzDomain = AMZ_LINKS[country];
+            const amzUrl = `https://www.amazon.${amzDomain}/s?k=${encodeURIComponent(query)}`;
+
+            const div = document.createElement('div');
+            div.className = 'fade-in-up group bg-gradient-to-br from-orange-50 to-amber-50 rounded-[1.75rem] overflow-hidden shadow-sm hover:shadow-xl hover:shadow-orange-100/60 border border-orange-200/80 flex flex-col card-hover';
+            div.innerHTML = `
+                <div class="relative bg-gradient-to-br from-orange-100 to-amber-100 p-6 overflow-hidden aspect-square flex items-center justify-center">
+                    <div class="text-6xl">📦</div>
+                    <div class="absolute top-3 left-3">
+                        <span class="text-[9px] font-extrabold text-white bg-[#FF9900] px-2.5 py-1 rounded-full uppercase tracking-widest shadow-sm">Amazon</span>
+                    </div>
+                </div>
+                <div class="p-5 flex flex-col flex-1">
+                    <h4 class="font-semibold text-slate-700 text-sm line-clamp-2 mb-4 leading-relaxed group-hover:text-orange-600 transition-colors">Ver resultados en Amazon</h4>
+                    <div class="mt-auto flex items-end justify-between gap-2">
+                        <div class="flex flex-col">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Buscar en</span>
+                            <span class="text-2xl font-black text-slate-900">Amazon</span>
+                        </div>
+                        <a href="${amzUrl}" target="_blank" rel="noopener"
+                            class="bg-[#FF9900] text-white p-3.5 rounded-2xl hover:bg-orange-600 transition-all duration-300 transform active:scale-90 shrink-0"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            `;
+            return div;
+        }
+
         function buildProductCard(item) {
-            const isAmazon = item.store === 'Amazon';
-            const currency = item.currency || 'ARS';
+            const currency = item.currency_id || 'ARS';
             const symbol = CURRENCY_SYMBOLS[currency] || '$';
             const price = item.price || 0;
             const formattedPrice = price.toLocaleString('es-AR', { maximumFractionDigits: 0 });
 
-            const title = escapeHtml((item.name || 'Producto sin nombre').substring(0, 80));
-            const link = escapeHtml(item.link || '#');
-            const imageUrl = escapeHtml((item.image || '').replace('http://', 'https://'));
+            const title = escapeHtml((item.title || 'Producto sin nombre').substring(0, 80));
+            const link = escapeHtml(item.permalink || '#');
+            const imageUrl = escapeHtml((item.thumbnail || '').replace('-I.jpg', '-O.jpg').replace('http://', 'https://'));
 
-            const storeBadge = isAmazon
-                ? '<span class="text-[9px] font-extrabold text-white bg-[#FF9900] px-2.5 py-1 rounded-full uppercase tracking-widest shadow-sm">Amazon</span>'
-                : '<span class="text-[9px] font-extrabold text-yellow-800 bg-yellow-400 px-2.5 py-1 rounded-full uppercase tracking-widest shadow-sm">ML</span>';
-
-            const originalPrice = item.original_currency && item.original_currency !== item.currency
-                ? `<span class="text-[10px] text-indigo-500 font-semibold mt-0.5">Original: ${item.original_currency === 'USD' ? 'U$S' : escapeHtml(item.original_currency)} ${Number(item.original_price).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
-                : '';
+            const condition = item.condition === 'used' ? 'Usado' : 'Nuevo';
+            const conditionBadge = item.condition === 'used'
+                ? '<span class="text-[9px] font-extrabold text-slate-600 bg-slate-200 px-2 py-0.5 rounded-full uppercase tracking-wider">Usado</span>'
+                : '<span class="text-[9px] font-extrabold text-green-700 bg-green-100 px-2 py-0.5 rounded-full uppercase tracking-wider">Nuevo</span>';
 
             const div = document.createElement('div');
             div.className = 'fade-in-up group bg-white rounded-[1.75rem] overflow-hidden shadow-sm hover:shadow-xl hover:shadow-indigo-100/60 border border-slate-100/80 flex flex-col card-hover';
@@ -240,7 +265,10 @@
                         class="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-700"
                         onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23f1f5f9%22/><text y=%2250%22 x=%2250%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22 font-size=%2240%22>📦</text></svg>'"
                     >
-                    <div class="absolute top-3 left-3 flex gap-1.5">${storeBadge}</div>
+                    <div class="absolute top-3 left-3 flex gap-1.5">
+                        <span class="text-[9px] font-extrabold text-yellow-800 bg-yellow-400 px-2.5 py-1 rounded-full uppercase tracking-widest shadow-sm">ML</span>
+                        ${conditionBadge}
+                    </div>
                 </div>
                 <div class="p-5 flex flex-col flex-1">
                     <h4 class="font-semibold text-slate-700 text-sm line-clamp-2 mb-4 leading-relaxed group-hover:text-indigo-600 transition-colors">${title}</h4>
@@ -249,7 +277,6 @@
                             <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Mejor precio</span>
                             <span class="text-2xl font-black text-slate-900">${symbol}${formattedPrice}</span>
                             <span class="text-[10px] text-slate-400 font-medium mt-0.5">${escapeHtml(currency)}</span>
-                            ${originalPrice}
                         </div>
                         <a href="${link}" target="_blank" rel="noopener"
                             class="bg-slate-900 text-white p-3.5 rounded-2xl hover:bg-indigo-600 transition-all duration-300 transform active:scale-90 shrink-0"

@@ -1,0 +1,193 @@
+================================================================================
+  YAMUILA BUSCADOR — NOTAS DE HOSTING Y LÓGICA DE LA APP
+  Guardado: Junio 2026
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. DESCRIPCIÓN DEL PROYECTO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Nombre: Yamuila Buscador
+Repo GitHub: https://github.com/LaManditacabra/yamuila-buscador
+Rama: main
+
+Descripción: Comparador de precios que busca productos en Mercado Libre
+(y opcionalmente Amazon) para Argentina, México, Chile y Colombia.
+
+Archivos del proyecto:
+  - index.html     → Frontend completo (HTML + JS)
+  - main.py        → Backend Python/FastAPI con Playwright (versión vieja con servidor)
+  - requirements.txt
+  - Dockerfile
+  - .gitignore
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. ¿POR QUÉ NO SE PUEDE HOSTEAR EN GITHUB PAGES TAL CUAL ESTABA?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GitHub Pages SOLO sirve archivos estáticos: HTML, CSS y JavaScript.
+NO puede ejecutar código Python, ni Playwright, ni ningún servidor.
+
+La versión original usaba:
+  - Python + FastAPI como servidor backend
+  - Playwright para abrir un navegador oculto y scrapear Mercado Libre y Amazon
+  - El frontend llamaba a /search en el servidor local
+
+Eso funciona localmente o en Render.com (con Docker), pero NO en GitHub Pages.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. SOLUCIÓN: USAR LA API OFICIAL DE MERCADO LIBRE (versión estática)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mercado Libre tiene una API pública y gratuita que SÍ tiene CORS habilitado.
+Esto significa que el JavaScript del navegador puede llamarla directamente
+sin necesitar ningún servidor intermedio.
+
+ENDPOINT DE BÚSQUEDA:
+  https://api.mercadolibre.com/sites/{SITE_ID}/search?q={PRODUCTO}&limit=40
+
+CÓDIGOS DE PAÍS (SITE_ID):
+  Argentina → MLA   (mercadolibre.com.ar)
+  México    → MLM   (mercadolibre.com.mx)
+  Chile     → MLC   (mercadolibre.cl)
+  Colombia  → MCO   (mercadolibre.com.co)
+
+Ejemplo real:
+  https://api.mercadolibre.com/sites/MLA/search?q=termo&limit=40
+
+La respuesta es JSON con un campo "results" que contiene los productos:
+  - prod.title       → nombre del producto
+  - prod.price       → precio
+  - prod.currency_id → moneda (ARS, MXN, CLP, COP)
+  - prod.permalink   → link al producto en ML
+  - prod.thumbnail   → imagen (reemplazar "-I.jpg" por "-O.jpg" para mejor calidad)
+  - prod.condition   → "new" o "used"
+
+IMPORTANTE — ERROR 403 AL ABRIR COMO ARCHIVO:
+  Si abrís el index.html directamente haciendo doble clic (protocolo file://)
+  la API devuelve HTTP 403. Esto es NORMAL.
+  En GitHub Pages (HTTPS) funciona perfectamente.
+
+  Para testear localmente sin ese error, usar un servidor HTTP simple:
+    → Abrir una terminal en la carpeta del proyecto
+    → Ejecutar: python -m http.server 8080
+    → Abrir en el navegador: http://localhost:8080
+    → La API funciona correctamente desde http://localhost
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. ¿Y AMAZON? — SOLUCIÓN SIN SERVIDOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Amazon NO tiene API pública con CORS habilitado, así que no se puede
+consultar directamente desde el navegador como con Mercado Libre.
+
+SOLUCIÓN ADOPTADA:
+  Se agrega una tarjeta especial (color naranja) en los resultados que
+  lleva al usuario directamente a la búsqueda en Amazon en una nueva pestaña.
+
+  URL de búsqueda de Amazon por país:
+    Argentina → https://www.amazon.com/s?k={producto}
+    México    → https://www.amazon.com.mx/s?k={producto}
+    Chile     → https://www.amazon.com/s?k={producto}
+    Colombia  → https://www.amazon.com/s?k={producto}
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. LÓGICA JAVASCRIPT (lo esencial del index.html nuevo)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Mapeo de países
+const ML_SITES  = { "com.ar":"MLA", "com.mx":"MLM", "cl":"MLC", "com.co":"MCO" };
+const AMZ_LINKS = { "com.ar":"com", "com.mx":"com.mx", "cl":"com", "com.co":"com" };
+
+// Llamada a la API
+const siteId = ML_SITES[country];
+const url = `https://api.mercadolibre.com/sites/${siteId}/search?q=${encodeURIComponent(query)}&limit=40`;
+const response = await fetch(url);
+const data = await response.json();
+const results = data.results; // Array de productos
+
+// Cada producto tiene:
+//   prod.title, prod.price, prod.currency_id,
+//   prod.permalink, prod.thumbnail, prod.condition
+
+// Imagen de mejor calidad:
+const img = prod.thumbnail.replace('-I.jpg', '-O.jpg').replace('http://', 'https://');
+
+// Enlace a Amazon (abre pestaña nueva):
+const amzUrl = `https://www.amazon.${AMZ_LINKS[country]}/s?k=${encodeURIComponent(query)}`;
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. CÓMO SUBIR A GITHUB PAGES (pasos)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Paso 1 — Commit y push del index.html nuevo:
+  git add index.html
+  git commit -m "Migrar a API de Mercado Libre, sin backend"
+  git push origin main
+
+Paso 2 — Activar GitHub Pages:
+  1. Ir a: https://github.com/LaManditacabra/yamuila-buscador/settings/pages
+  2. En "Source" seleccionar: Deploy from a branch
+  3. Branch: main  /  Folder: / (root)
+  4. Guardar
+
+Paso 3 — La URL pública quedará en:
+  https://lamanditacabra.github.io/yamuila-buscador/
+
+(GitHub tarda 1-2 minutos en publicar después de cada push)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. OPCIONES DE HOSTING (resumen comparativo)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OPCIÓN A — GitHub Pages (RECOMENDADA):
+  ✅ 100% gratis, sin límites de tiempo
+  ✅ Sin servidores que mantener
+  ✅ Nunca se "duerme"
+  ✅ Velocidad instantánea (usa API de ML directamente)
+  ❌ Solo Mercado Libre (Amazon queda como enlace)
+  ❌ No puede correr código Python
+
+OPCIÓN B — Render.com con Docker (versión original):
+  ✅ Resultados de ML + Amazon en la misma pantalla
+  ❌ En plan gratuito se "duerme" tras 15 min sin visitas
+  ❌ Primera búsqueda tarda ~50 segundos (cold start)
+  ❌ Riesgo de "Out of Memory" (Playwright usa mucha RAM)
+  ❌ Requiere mantener el servidor activo
+
+OPCIÓN C — Híbrida (GitHub Pages + Render solo para Amazon):
+  ✅ Frontend en GitHub Pages (rápido)
+  ✅ Backend en Render solo para Amazon
+  ❌ Complejidad mixta
+  ❌ Depende de que Render no se caiga
+
+OPCIÓN D — Vercel:
+  ❌ NO compatible con Playwright (límite 50MB, sin navegadores)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. RENDER.COM — NOTAS DEL DEPLOY CON DOCKER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Imagen base del Dockerfile:
+  mcr.microsoft.com/playwright/python:v1.44.0-jammy
+
+Versión de playwright en requirements.txt debe ser EXACTAMENTE:
+  playwright==1.44.0
+  (Debe coincidir con la versión de la imagen base)
+
+playwright-stealth:
+  playwright-stealth==1.6.0  → NO EXISTE, da error en build
+  playwright-stealth>=2.0.0  → CORRECTO
+
+IPs de salida de Render (para whitelist si es necesario):
+  74.220.49.0/24
+  74.220.57.0/24
+
+================================================================================
