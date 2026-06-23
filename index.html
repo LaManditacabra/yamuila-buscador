@@ -166,8 +166,7 @@
             errorState.classList.add('hidden');
             loader.classList.remove('hidden');
 
-            const siteId = ML_SITES[country];
-            const apiUrl = `https://api.mercadolibre.com/sites/${siteId}/search?q=${encodeURIComponent(query)}&limit=40`;
+            const apiUrl = `/api/search?q=${encodeURIComponent(query)}&country=${country}`;
 
             try {
                 const response = await fetch(apiUrl);
