@@ -21,7 +21,11 @@ export default async function handler(req, res) {
     const clientId = process.env.ML_CLIENT_ID;
     const clientSecret = process.env.ML_CLIENT_SECRET;
 
+    console.log('ML_CLIENT_ID definido:', !!clientId);
+    console.log('ML_CLIENT_SECRET definido:', !!clientSecret);
+
     if (!clientId || !clientSecret) {
+        console.error('Error: Credenciales de Mercado Libre incompletas en variables de entorno.');
         return res.status(500).json({ error: 'Las credenciales de Mercado Libre (ML_CLIENT_ID o ML_CLIENT_SECRET) no están configuradas en las variables de entorno de Vercel.' });
     }
 
