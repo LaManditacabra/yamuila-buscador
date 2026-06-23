@@ -1,7 +1,7 @@
 const ML_SITES = { "com.ar": "MLA", "com.mx": "MLM", "cl": "MLC", "com.co": "MCO" };
 
 export default async function handler(req, res) {
-    // Configuración de cabeceras CORS para permitir llamadas desde el frontend de GitHub Pages o local
+    // Configuración de cabeceras CORS
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -18,58 +18,26 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Falta el parámetro de búsqueda q' });
     }
 
-    const clientId = process.env.ML_CLIENT_ID;
-    const clientSecret = process.env.ML_CLIENT_SECRET;
-
-    console.log('ML_CLIENT_ID definido:', !!clientId);
-    console.log('ML_CLIENT_SECRET definido:', !!clientSecret);
-
-    if (!clientId || !clientSecret) {
-        console.error('Error: Credenciales de Mercado Libre incompletas en variables de entorno.');
-        return res.status(500).json({ error: 'Las credenciales de Mercado Libre (ML_CLIENT_ID o ML_CLIENT_SECRET) no están configuradas en las variables de entorno de Vercel.' });
-    }
-
     try {
-        // 1. Obtener el Access Token usando el flujo Client Credentials
-        const tokenResponse = await fetch('https://api.mercadolibre.com/oauth/token', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            },
-            body: new URLSearchParams({
-                grant_type: 'client_credentials',
-                client_id: clientId,
-                client_secret: clientSecret
-            })
-        });
-
-        if (!tokenResponse.ok) {
-            const errData = await tokenResponse.json();
-            console.error('Error obteniendo token:', errData);
-            return res.status(tokenResponse.status).json({ error: 'No se pudo obtener el token de Mercado Libre', details: errData });
-        }
-
-        const tokenData = await tokenResponse.json();
-        const accessToken = tokenData.access_token;
-
-        // 2. Realizar la búsqueda en Mercado Libre usando el token obtenido
         const siteId = ML_SITES[country] || 'MLA';
         const searchUrl = `https://api.mercadolibre.com/sites/${siteId}/search?q=${encodeURIComponent(q)}&limit=40`;
 
+        console.log('Realizando consulta a API de ML de forma anónima:', searchUrl);
+
+        // Realizamos la petición HTTP simulando un navegador Chrome, sin enviar el token
         const searchResponse = await fetch(searchUrl, {
             headers: {
-                'Authorization': `Bearer ${accessToken}`,
                 'Accept': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'es-ES,es;q=0.9',
+                'Cache-Control': 'no-cache'
             }
         });
 
         if (!searchResponse.ok) {
             const errData = await searchResponse.json();
-            console.error('Error buscando:', errData);
-            return res.status(searchResponse.status).json({ error: 'Error en la búsqueda de Mercado Libre', details: errData });
+            console.error('Error buscando de forma anónima:', errData);
+            return res.status(searchResponse.status).json({ error: 'Error en la búsqueda anónima de Mercado Libre', details: errData });
         }
 
         const searchData = await searchResponse.json();
